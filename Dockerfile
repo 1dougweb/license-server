@@ -152,9 +152,23 @@ RUN mkdir -p /var/www/database && \
     chown -R www:www /var/www/database && \
     chmod 664 /var/www/database/database.sqlite || true
 
-# Copy and set up entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Create entrypoint script inline (no need to copy file)
+RUN echo '#!/bin/bash' > /usr/local/bin/docker-entrypoint.sh && \
+    echo 'set -e' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo '' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo '# Create SQLite database if using SQLite' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo 'if [ "${DB_CONNECTION:-sqlite}" = "sqlite" ]; then' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo '    mkdir -p /var/www/database' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo '    if [ ! -f /var/www/database/database.sqlite ]; then' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo '        touch /var/www/database/database.sqlite' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo '        chown -R www:www /var/www/database' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo '        chmod 664 /var/www/database/database.sqlite' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo '    fi' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo 'fi' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo '' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo '# Start supervisor' >> /usr/local/bin/docker-entrypoint.sh && \
+    echo 'exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf' >> /usr/local/bin/docker-entrypoint.sh && \
+    chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Expose port 80 for web server
 EXPOSE 80
