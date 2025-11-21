@@ -41,11 +41,22 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 RUN node --version && npm --version
 
 # Add user for laravel application
-RUN groupadd -g 1000 www
-RUN useradd -u 1000 -ms /bin/bash -g www www
+RUN groupadd -g 1000 www || true
+RUN useradd -u 1000 -ms /bin/bash -g www www || true
 
 # Copy existing application directory permissions
 COPY --chown=www:www . /var/www
+
+# Install dependencies (as root, before switching user)
+USER root
+RUN cd /var/www && composer install --no-dev --optimize-autoloader --no-interaction || true
+RUN cd /var/www && npm install && npm run build || true
+
+# Create .htaccess for public redirect (if using Apache)
+RUN echo '<IfModule mod_rewrite.c>' > /var/www/.htaccess && \
+    echo '    RewriteEngine On' >> /var/www/.htaccess && \
+    echo '    RewriteRule ^(.*)$ public/$1 [L]' >> /var/www/.htaccess && \
+    echo '</IfModule>' >> /var/www/.htaccess
 
 # Configure Nginx (as root, before switching user)
 COPY nginx/nginx.conf /etc/nginx/sites-available/default
@@ -59,12 +70,12 @@ RUN echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
     echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo '[program:php-fpm]' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'command=php-fpm' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'command=php-fpm -F' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'stderr_logfile=/var/log/php-fpm.err.log' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'stdout_logfile=/var/log/php-fpm.out.log' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'user=www' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'priority=999' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo '[program:nginx]' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'command=nginx -g "daemon off;"' >> /etc/supervisor/conf.d/supervisord.conf && \
@@ -74,11 +85,45 @@ RUN echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
     echo 'stdout_logfile=/var/log/nginx.out.log' >> /etc/supervisor/conf.d/supervisord.conf
 
 # Set permissions (as root)
-RUN chown -R www:www /var/www/storage /var/www/bootstrap/cache || true
+RUN chown -R www:www /var/www || true
 RUN chmod -R 775 /var/www/storage /var/www/bootstrap/cache || true
 
 # Create log directories
 RUN mkdir -p /var/log && chmod 777 /var/log
+
+# Fix PHP-FPM pool configuration to use www user
+RUN if [ -f /usr/local/etc/php-fpm.d/www.conf ]; then \
+    sed -i 's/user = www-data/user = www/g' /usr/local/etc/php-fpm.d/www.conf || true; \
+    sed -i 's/group = www-data/group = www/g' /usr/local/etc/php-fpm.d/www.conf || true; \
+    sed -i 's/listen.owner = www-data/listen.owner = www/g' /usr/local/etc/php-fpm.d/www.conf || true; \
+    sed -i 's/listen.group = www-data/listen.group = www/g' /usr/local/etc/php-fpm.d/www.conf || true; \
+    fi
+
+# Create PHP-FPM pool directory and ensure www.conf exists
+RUN mkdir -p /usr/local/etc/php-fpm.d || true
+RUN if [ ! -f /usr/local/etc/php-fpm.d/www.conf ]; then \
+    echo '[www]' > /usr/local/etc/php-fpm.d/www.conf && \
+    echo 'user = www' >> /usr/local/etc/php-fpm.d/www.conf && \
+    echo 'group = www' >> /usr/local/etc/php-fpm.d/www.conf && \
+    echo 'listen = 127.0.0.1:9000' >> /usr/local/etc/php-fpm.d/www.conf && \
+    echo 'listen.owner = www' >> /usr/local/etc/php-fpm.d/www.conf && \
+    echo 'listen.group = www' >> /usr/local/etc/php-fpm.d/www.conf && \
+    echo 'pm = dynamic' >> /usr/local/etc/php-fpm.d/www.conf && \
+    echo 'pm.max_children = 50' >> /usr/local/etc/php-fpm.d/www.conf && \
+    echo 'pm.start_servers = 5' >> /usr/local/etc/php-fpm.d/www.conf && \
+    echo 'pm.min_spare_servers = 5' >> /usr/local/etc/php-fpm.d/www.conf && \
+    echo 'pm.max_spare_servers = 35' >> /usr/local/etc/php-fpm.d/www.conf; \
+    fi
+
+# Ensure .env exists (create from .env.example if needed)
+RUN if [ ! -f /var/www/.env ]; then \
+    if [ -f /var/www/.env.example ]; then \
+        cp /var/www/.env.example /var/www/.env; \
+    else \
+        touch /var/www/.env; \
+    fi; \
+    chown www:www /var/www/.env; \
+    fi
 
 # Expose port 80 for web server
 EXPOSE 80
