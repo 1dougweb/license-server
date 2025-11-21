@@ -25,7 +25,8 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\HandleInertiaRequests::class,
         ]);
 
-        // Rate limiting para API (aplicar primeiro)
+        // Rate limiting global para API (aplicar primeiro)
+        // Nota: Rotas específicas podem ter rate limiting mais restritivo
         $middleware->api(prepend: [
             \Illuminate\Routing\Middleware\ThrottleRequests::class . ':60,1',
         ]);
