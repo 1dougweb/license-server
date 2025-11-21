@@ -3,6 +3,10 @@ FROM php:8.2-fpm
 # Set working directory
 WORKDIR /var/www
 
+# Prevent interactive prompts during build
+ENV DEBIAN_FRONTEND=noninteractive
+ENV COMPOSER_ALLOW_SUPERUSER=1
+
 # Install dependencies (including Nginx and Supervisor)
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -49,12 +53,25 @@ COPY --chown=www:www . /var/www
 
 # Install dependencies (as root, before switching user)
 USER root
-RUN cd /var/www && composer install --no-dev --optimize-autoloader --no-interaction || true
-RUN cd /var/www && npm install && npm run build || true
+
+# Install Composer dependencies
+RUN cd /var/www && \
+    if [ -f composer.json ]; then \
+        composer install --no-dev --optimize-autoloader --no-interaction --no-scripts || \
+        composer install --no-dev --optimize-autoloader --no-interaction; \
+    fi
+
+# Install Node dependencies and build assets
+RUN cd /var/www && \
+    if [ -f package.json ]; then \
+        npm install --legacy-peer-deps || npm install; \
+        npm run build || (echo "Build failed, continuing..." && mkdir -p public/build); \
+    fi
 
 # Ensure build directory has correct permissions
-RUN chown -R www:www /var/www/public/build || true
-RUN chmod -R 755 /var/www/public/build || true
+RUN mkdir -p /var/www/public/build && \
+    chown -R www:www /var/www/public/build && \
+    chmod -R 755 /var/www/public/build || true
 
 # Create .htaccess for public redirect (if using Apache)
 RUN echo '<IfModule mod_rewrite.c>' > /var/www/.htaccess && \
