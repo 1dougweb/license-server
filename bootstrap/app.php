@@ -12,6 +12,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Trust proxies to detect HTTPS correctly
+        $middleware->web(prepend: [
+            \Illuminate\Http\Middleware\TrustProxies::class,
+        ]);
+        
         $middleware->web(append: [
             \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
         ]);
