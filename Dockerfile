@@ -52,6 +52,10 @@ USER root
 RUN cd /var/www && composer install --no-dev --optimize-autoloader --no-interaction || true
 RUN cd /var/www && npm install && npm run build || true
 
+# Ensure build directory has correct permissions
+RUN chown -R www:www /var/www/public/build || true
+RUN chmod -R 755 /var/www/public/build || true
+
 # Create .htaccess for public redirect (if using Apache)
 RUN echo '<IfModule mod_rewrite.c>' > /var/www/.htaccess && \
     echo '    RewriteEngine On' >> /var/www/.htaccess && \
@@ -125,9 +129,19 @@ RUN if [ ! -f /var/www/.env ]; then \
     chown www:www /var/www/.env; \
     fi
 
+# Create SQLite database file if using SQLite (for development)
+RUN mkdir -p /var/www/database && \
+    touch /var/www/database/database.sqlite && \
+    chown -R www:www /var/www/database && \
+    chmod 664 /var/www/database/database.sqlite || true
+
+# Copy and set up entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Expose port 80 for web server
 EXPOSE 80
 
 # Start supervisor to run both PHP-FPM and Nginx (as root)
 # Supervisor precisa rodar como root para gerenciar processos
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
